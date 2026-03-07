@@ -1,58 +1,114 @@
 import asyncio
+import sqlite3
+from datetime import datetime
 from playwright.async_api import async_playwright
-import pandas as pd
 
-async def scrape_dublin_properties():
+# --- 1. DATABASE SETUP ---
+def setup_db():
+    conn = sqlite3.connect('dublin_properties.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS properties (
+            prop_id TEXT PRIMARY KEY,
+            address TEXT,
+            first_seen DATE,
+            last_seen DATE,
+            asking_price INTEGER,
+            status TEXT,
+            days_on_market INTEGER DEFAULT 0
+        )
+    ''')
+    conn.commit()
+    return conn
+
+# --- 2. SCRAPING LOGIC ---
+async def scrape_dublin():
+    properties = []
     async with async_playwright() as p:
-        # Launch browser (headless=True means it runs in the background)
+        # Launching with specific arguments to avoid GitHub Action crashes
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-
-        # Set a User-Agent to look like a standard browser
-        await page.set_extra_http_headers({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        })
-
-        # Navigate to the Dublin Sale listings
-        # Note: In a real scenario, you'd loop through pagination pages
-        url = "https://www.daft.ie/property-for-sale/dublin-city"
-        print(f"Navigating to {url}...")
-        await page.goto(url, wait_until="networkidle")
-
-        # Locate property cards using the data-testid attribute (standard for modern sites)
-        listings = await page.locator('data-testid=card').all()
         
-        property_data = []
+        # Using a realistic User-Agent is the #1 way to avoid "Exit Code 1"
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        )
+        page = await context.new_page()
 
-        for listing in listings:
-            try:
-                # Extracting specific elements
-                price = await listing.locator('data-testid=price').inner_text()
-                address = await listing.locator('data-testid=address').inner_text()
-                
-                # Extract the URL to get the unique Property ID
-                link_element = listing.locator('a')
-                link = await link_element.get_attribute('href')
-                prop_id = link.split('/')[-1] if link else "N/A"
+        print("Navigating to Daft.ie...")
+        try:
+            # We use a wait_until to ensure the page actually loads before we scrape
+            await page.goto("https://www.daft.ie/property-for-sale/dublin-city", wait_until="domcontentloaded", timeout=60000)
+            
+            # Wait for the property cards to appear
+            await page.wait_for_selector('data-testid=card', timeout=10000)
+            
+            listings = await page.locator('data-testid=card').all()
+            
+            for listing in listings:
+                try:
+                    # Extract Price
+                    raw_price = await listing.locator('data-testid=price').inner_text()
+                    # Clean price: "€550,000" -> 550000
+                    clean_price = int(''.join(filter(str.isdigit, raw_price)))
+                    
+                    # Extract Address
+                    address = await listing.locator('data-testid=address').inner_text()
+                    
+                    # Extract ID from the link
+                    link = await listing.locator('a').get_attribute('href')
+                    prop_id = link.split('/')[-1]
 
-                property_data.append({
-                    "id": prop_id,
-                    "price": price.replace('€', '').replace(',', '').strip(),
-                    "address": address,
-                    "link": f"https://www.daft.ie{link}"
-                })
-            except Exception as e:
-                continue
+                    properties.append({
+                        "id": prop_id,
+                        "address": address,
+                        "price": clean_price
+                    })
+                except:
+                    continue # Skip cards that don't match (like ads)
 
+        except Exception as e:
+            print(f"Error during scrape: {e}")
+        
         await browser.close()
-        
-        # Save to DataFrame for analysis
-        df = pd.DataFrame(property_data)
-        print(f"Successfully scraped {len(df)} properties.")
-        return df
+    return properties
 
-# Run the script
+# --- 3. SYNC DATA TO DATABASE ---
+def update_database(conn, scraped_data):
+    cursor = conn.cursor()
+    today = datetime.now().strftime('%Y-%m-%d')
+
+    # Mark new/updated listings as active
+    for item in scraped_data:
+        cursor.execute('''
+            INSERT INTO properties (prop_id, address, first_seen, last_seen, asking_price, status)
+            VALUES (?, ?, ?, ?, ?, 'active')
+            ON CONFLICT(prop_id) DO UPDATE SET
+                last_seen = excluded.last_seen,
+                asking_price = excluded.asking_price,
+                status = 'active'
+        ''', (item['id'], item['address'], today, today, item['price']))
+
+    # Mark disappeared listings as 'off-market'
+    cursor.execute("UPDATE properties SET status = 'off-market' WHERE last_seen < ?", (today,))
+    
+    # Calculate Days on Market
+    cursor.execute('''
+        UPDATE properties 
+        SET days_on_market = CAST(julianday(last_seen) - julianday(first_seen) AS INTEGER)
+    ''')
+    
+    conn.commit()
+    print(f"Database updated with {len(scraped_data)} properties.")
+
+# --- 4. MAIN EXECUTION ---
+async def main():
+    db_conn = setup_db()
+    data = await scrape_dublin()
+    if data:
+        update_database(db_conn, data)
+    else:
+        print("No data found. Scraper might be blocked or selectors changed.")
+    db_conn.close()
+
 if __name__ == "__main__":
-    df_results = asyncio.run(scrape_dublin_properties())
-    print(df_results.head())
-    # df_results.to_csv("dublin_properties.csv", index=False)
+    asyncio.run(main())
