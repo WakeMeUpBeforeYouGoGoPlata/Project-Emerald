@@ -1,0 +1,36 @@
+name: Daily Dublin Property Scrape
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Runs at 2:00 AM every night
+  workflow_dispatch:      # Adds a "Run now" button for testing
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write    # Allows the bot to save the database back to your repo
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: Run Scraper
+        run: python scraper.py
+
+      - name: Commit and Push Database
+        run: |
+          git config --global user.name "PropertyBot"
+          git config --global user.email "bot@github.com"
+          git add dublin_properties.db
+          git commit -m "Update property data: $(date)" || echo "No changes to commit"
+          git push
