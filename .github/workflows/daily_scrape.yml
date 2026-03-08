@@ -25,13 +25,20 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install -r requirements.txt || echo "No requirements file"
+          - name: Install Dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # These two lines fix the 'command not found' for Playwright
+          pip install playwright
+          playwright install chromium --with-deps 
 
       - name: Run Scraper
-        run: python3 scraper.py
         env:
-          PYTHONUNBUFFERED: 1
-
-      - name: Commit and Push Changes
+          TARGET_URL: ${{ secrets.TARGET_URL }}
+          API_KEY: ${{ secrets.API_KEY }}
+          PYTHONUNBUFFERED: 1 
+        - name: Commit and Push Changes
         run: |
           git config --global user.name "PropertyBot"
           git config --global user.email "bot@project-emerald.com"
