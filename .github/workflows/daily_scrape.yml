@@ -27,14 +27,19 @@ jobs:
       - name: Create Data Directory
         run: mkdir -p data/scrapes # Ensures directory exists before script runs
 
-      - name: Run Scraper
+    - name: Run Scraper
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
           API_KEY: ${{ secrets.API_KEY }}
-          # Headless mode is vital for CI environments
           PYTHONUNBUFFERED: 1 
-        run: python scraper.py
-
+        # Using 'python3' and checking file existence first
+        run: |
+          if [ -f "scraper.py" ]; then
+            python3 scraper.py
+          else
+            echo "Error: scraper.py not found in $(pwd)"
+            exit 1
+          fi
       - name: Commit and Push Changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
