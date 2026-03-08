@@ -2,57 +2,51 @@ name: Daily Web Scrape
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Runs daily at midnight
-  workflow_dispatch: # Allows you to click "Run workflow" manually
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Crucial: Gives the bot permission to push
     
-    # Ensuring we use bash for all steps to avoid command-not-found issues
-    defaults:
-      run:
-        shell: bash
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          # Fetches all history so we can pull/rebase without errors
-          fetch-depth: 0 
+          fetch-depth: 0 # Fetches full history so rebase works
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'
 
       - name: Install Dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r requirements.txt || echo "No requirements file"
 
       - name: Run Scraper
-        env:
-          TARGET_URL: ${{ secrets.TARGET_URL }}
-          API_KEY: ${{ secrets.API_KEY }}
-          PYTHONUNBUFFERED: 1 
         run: python3 scraper.py
+        env:
+          PYTHONUNBUFFERED: 1
 
-   - name: Commit and Push Changes
+      - name: Commit and Push Changes
         run: |
-          # 1. Identity
           git config --global user.name "PropertyBot"
           git config --global user.email "bot@project-emerald.com"
           
-          # 2. Sync with the remote (Crucial step!)
-          # This pulls your recent YAML edits so the runner is up to date
+          # 1. Pull the latest changes (your YAML edits) from GitHub
           git pull origin main --rebase
-
-          # 3. Add the database file
+          
+          # 2. Add the new data
           git add dublin_properties.db
           
-          # 4. Commit and Push only if there are changes
-          # The || true ensures the script doesn't crash if there's nothing new to save
-          git commit -m "Update property data: $(date)" || echo "No changes to commit"
-          git push origin main
+          # 3. Only commit if the database actually changed
+          if git diff --staged --quiet; then
+            echo "No changes to the database. Skipping push."
+          else
+            git commit -m "Update property data: $(date)"
+            # 4. Push back to the main branch
+            git push origin main
+          fi
