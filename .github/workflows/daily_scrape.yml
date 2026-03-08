@@ -39,15 +39,20 @@ jobs:
           PYTHONUNBUFFERED: 1 
         run: python3 scraper.py
 
-      - name: Commit and Push Changes
-        # This specific action is better at handling the "rejected" error we saw
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Update property data: $(date)"
-          file_pattern: 'dublin_properties.db'
-          # This tells the action to pull changes before pushing to avoid the "Exit Code 1"
-          branch: main
-          push_options: '--force' 
-          # Ensures it doesn't fail if there's nothing new to commit
-          skip_dirty_check: false    
-          skip_fetch: false
+   - name: Commit and Push Changes
+        run: |
+          # 1. Identity
+          git config --global user.name "PropertyBot"
+          git config --global user.email "bot@project-emerald.com"
+          
+          # 2. Sync with the remote (Crucial step!)
+          # This pulls your recent YAML edits so the runner is up to date
+          git pull origin main --rebase
+
+          # 3. Add the database file
+          git add dublin_properties.db
+          
+          # 4. Commit and Push only if there are changes
+          # The || true ensures the script doesn't crash if there's nothing new to save
+          git commit -m "Update property data: $(date)" || echo "No changes to commit"
+          git push origin main
