@@ -27,8 +27,7 @@ async def scrape_dublin():
     properties = []
     async with async_playwright() as p:
         # Launching with specific arguments for GitHub Actions stability
-        browser = await p.chromium.launch(headless=True)
-        
+browser = playwright.chromium.launch(headless=True)
         # Setting a realistic User-Agent to avoid being flagged as a bot
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
