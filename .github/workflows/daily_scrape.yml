@@ -8,7 +8,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+    # Force the entire job to use bash to avoid 'sh' pathing issues
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -17,29 +21,26 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          # Removed cache for this run to ensure a clean slate
 
-      - name: Install Dependencies
+      - name: System Check
         run: |
-          python3 -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          echo "Checking system paths..."
+          which python
+          which python3
+          python3 --version
 
-      - name: Verify File Location
-        # This will print the directory structure to the logs 
-        # so we can catch if scraper.py is in a subfolder
-        run: ls -R
+      - name: Find Scraper File
+        run: |
+          echo "Searching for scraper.py..."
+          find . -name "scraper.py"
+          echo "Current directory contents:"
+          ls -F
 
       - name: Run Scraper
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
           API_KEY: ${{ secrets.API_KEY }}
           PYTHONUNBUFFERED: 1 
-        # We use 'which' to confirm python3 exists, then run the script
         run: |
-          which python3
+          # We use the absolute path found in the previous step if necessary
           python3 ./scraper.py
-
-      - name: Commit and Push Changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Auto-update: Daily Scrape Data"
