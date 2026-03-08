@@ -2,13 +2,14 @@ name: Daily Web Scrape
 
 on:
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    - cron: '0 0 * * *' # Runs daily at midnight
+  workflow_dispatch: # Allows you to click "Run workflow" manually
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Force the entire job to use bash to avoid 'sh' pathing issues
+    
+    # Ensuring we use bash for all steps to avoid command-not-found issues
     defaults:
       run:
         shell: bash
@@ -16,40 +17,37 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          # Fetches all history so we can pull/rebase without errors
+          fetch-depth: 0 
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
 
-      - name: System Check
+      - name: Install Dependencies
         run: |
-          echo "Checking system paths..."
-          which python
-          which python3
-          python3 --version
-
-      - name: Find Scraper File
-        run: |
-          echo "Searching for scraper.py..."
-          find . -name "scraper.py"
-          echo "Current directory contents:"
-          ls -F
+          python3 -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run Scraper
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
           API_KEY: ${{ secrets.API_KEY }}
           PYTHONUNBUFFERED: 1 
-        run: |
-          # We use the absolute path found in the previous step if necessary
-          python3 ./scraper.py
-- name: Commit and Push Changes
+        run: python3 scraper.py
+
+      - name: Commit and Push Changes
+        # This specific action is better at handling the "rejected" error we saw
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Update property data: ${{ github.event.head_commit.timestamp }}"
+          commit_message: "Update property data: $(date)"
           file_pattern: 'dublin_properties.db'
-          # This helps avoid the "rejected" error by pulling latest changes first
+          # This tells the action to pull changes before pushing to avoid the "Exit Code 1"
+          branch: main
           push_options: '--force' 
-          # Or better yet, ensure it pulls before pushing:
-          add_options: '-A'
+          # Ensures it doesn't fail if there's nothing new to commit
+          skip_dirty_check: false    
+          skip_fetch: false
